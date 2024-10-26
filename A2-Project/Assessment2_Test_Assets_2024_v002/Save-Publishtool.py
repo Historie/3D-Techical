@@ -32,7 +32,7 @@ def get_next_version(file_path, file_name):
         version += 1
     return str(version).zfill(3)
 
-# Save file with versioning and user prompt in WIP directory
+# Save file with versioning in WIP directory
 def save_file(department, asset_type, asset_name, file_name):
     if not all([department, asset_type, asset_name, file_name]):
         cmds.warning("Please fill in all required fields.")
@@ -49,7 +49,7 @@ def save_file(department, asset_type, asset_name, file_name):
     cmds.confirmDialog(title="Save Successful", message=f"File saved as {full_file_name} in WIP", button=["OK"])
     return full_file_name, version
 
-# Publish file to the publish folder and export formats, with confirmation dialog
+# Publish file to the publish folder and export formats
 def publish_file(department, asset_type, asset_name, file_name, frame_range="1 24"):
     full_file_name, version = save_file(department, asset_type, asset_name, file_name)
     
@@ -57,8 +57,10 @@ def publish_file(department, asset_type, asset_name, file_name, frame_range="1 2
     publish_source_path = determine_save_path(department, asset_type, asset_name, is_publish=True)
     publish_cache_path_abc = os.path.join(PUBLISH_DIR, "caches/abc")
     publish_cache_path_fbx = os.path.join(PUBLISH_DIR, "caches/fbx")
+    publish_cache_path_usd = os.path.join(PUBLISH_DIR, "caches/usd")
     ensure_directory_exists(publish_cache_path_abc)
     ensure_directory_exists(publish_cache_path_fbx)
+    ensure_directory_exists(publish_cache_path_usd)
 
     # Copy WIP file to Publish source
     wip_save_path = determine_save_path(department, asset_type, asset_name)
@@ -72,13 +74,21 @@ def publish_file(department, asset_type, asset_name, file_name, frame_range="1 2
 
     cmds.sysFile(saved_file, copy=published_file)
 
-    # Export Alembic (.abc) and FBX (.fbx) files
+    # Export Alembic (.abc), FBX (.fbx), and USD (.usd) files
     alembic_path = os.path.join(publish_cache_path_abc, f"{file_name}_v{version}.abc")
     fbx_path = os.path.join(publish_cache_path_fbx, f"{file_name}_v{version}.fbx")
+    usd_path = os.path.join(publish_cache_path_usd, f"{file_name}_v{version}.usd")
     cmds.AbcExport(j=f"-file {alembic_path} -ftr -fr {frame_range}")
     cmds.file(fbx_path, force=True, options="v=0;", type="FBX export", exportAll=True)
+    cmds.file(usd_path, force=True, options="v=0;", type="USD export", exportAll=True)
     
-    cmds.confirmDialog(title="Publish Successful", message=f"File published as {full_file_name}", button=["OK"])
+    # Increment version in WIP after publishing
+    new_version = get_next_version(wip_save_path, file_name)
+    new_file_name = f"{file_name}_v{new_version}.ma"
+    cmds.file(rename=os.path.join(wip_save_path, new_file_name))
+    cmds.file(save=True, type="mayaAscii")
+    
+    cmds.confirmDialog(title="Publish Successful", message=f"File published as {full_file_name}.\nWIP version updated to {new_file_name}", button=["OK"])
 
 # Documentation dialog
 def show_documentation():
@@ -153,4 +163,3 @@ def list_versions(*args):
 
 # Run the Save & Publish Tool UI
 create_save_publish_tool_ui()
-
