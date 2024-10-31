@@ -25,15 +25,15 @@ def determine_save_path(department, asset_type, asset_name, is_publish=False):
     ensure_directory_exists(save_path)
     return save_path
 
-# Get next version number for a file
+# Get next version number for a file in WIP
 def get_next_version(file_path, file_name):
     version = 1
     while os.path.exists(f"{file_path}/{file_name}_v{str(version).zfill(3)}.ma"):
         version += 1
     return str(version).zfill(3)
 
-# Save file with versioning in WIP directory
-def save_file(department, asset_type, asset_name, file_name):
+# Save file with versioning in WIP directory only
+def save_wip_file(department, asset_type, asset_name, file_name):
     if not all([department, asset_type, asset_name, file_name]):
         cmds.warning("Please fill in all required fields.")
         return
@@ -49,10 +49,8 @@ def save_file(department, asset_type, asset_name, file_name):
     cmds.confirmDialog(title="Save Successful", message=f"File saved as {full_file_name} in WIP", button=["OK"])
     return full_file_name, version
 
-# Publish file to the publish folder and export formats
+# Publish file to the publish folder without versioning (final version only)
 def publish_file(department, asset_type, asset_name, file_name, frame_range="1 24"):
-    full_file_name, version = save_file(department, asset_type, asset_name, file_name)
-    
     # Define publish paths for source and caches
     publish_source_path = determine_save_path(department, asset_type, asset_name, is_publish=True)
     publish_cache_path_abc = os.path.join(PUBLISH_DIR, "caches/abc")
@@ -62,11 +60,18 @@ def publish_file(department, asset_type, asset_name, file_name, frame_range="1 2
     ensure_directory_exists(publish_cache_path_fbx)
     ensure_directory_exists(publish_cache_path_usd)
 
-    # Copy WIP file to Publish source
+    # Find the latest WIP version to publish
     wip_save_path = determine_save_path(department, asset_type, asset_name)
-    saved_file = os.path.join(wip_save_path, full_file_name)
-    published_file = os.path.join(publish_source_path, full_file_name)
-    
+    wip_files = sorted([f for f in os.listdir(wip_save_path) if f.startswith(file_name) and f.endswith(".ma")], reverse=True)
+    if not wip_files:
+        cmds.warning("No WIP file found to publish.")
+        return
+
+    # Use the latest versioned WIP file for publishing
+    latest_wip_file = wip_files[0]
+    saved_file = os.path.join(wip_save_path, latest_wip_file)
+    published_file = os.path.join(publish_source_path, f"{file_name}_final.ma")
+
     if os.path.exists(published_file):
         overwrite = cmds.confirmDialog(title="File Exists", message="Published file already exists. Overwrite?", button=["Yes", "No"])
         if overwrite == "No":
@@ -75,25 +80,19 @@ def publish_file(department, asset_type, asset_name, file_name, frame_range="1 2
     cmds.sysFile(saved_file, copy=published_file)
 
     # Export Alembic (.abc), FBX (.fbx), and USD (.usd) files
-    alembic_path = os.path.join(publish_cache_path_abc, f"{file_name}_v{version}.abc")
-    fbx_path = os.path.join(publish_cache_path_fbx, f"{file_name}_v{version}.fbx")
-    usd_path = os.path.join(publish_cache_path_usd, f"{file_name}_v{version}.usd")
+    alembic_path = os.path.join(publish_cache_path_abc, f"{file_name}_final.abc")
+    fbx_path = os.path.join(publish_cache_path_fbx, f"{file_name}_final.fbx")
+    usd_path = os.path.join(publish_cache_path_usd, f"{file_name}_final.usd")
     cmds.AbcExport(j=f"-file {alembic_path} -ftr -fr {frame_range}")
     cmds.file(fbx_path, force=True, options="v=0;", type="FBX export", exportAll=True)
     cmds.file(usd_path, force=True, options="v=0;", type="USD export", exportAll=True)
     
-    # Increment version in WIP after publishing
-    new_version = get_next_version(wip_save_path, file_name)
-    new_file_name = f"{file_name}_v{new_version}.ma"
-    cmds.file(rename=os.path.join(wip_save_path, new_file_name))
-    cmds.file(save=True, type="mayaAscii")
-    
-    cmds.confirmDialog(title="Publish Successful", message=f"File published as {full_file_name}.\nWIP version updated to {new_file_name}", button=["OK"])
+    cmds.confirmDialog(title="Publish Successful", message=f"File published as {file_name}_final in publish folder", button=["OK"])
 
 # Documentation dialog
 def show_documentation():
     cmds.confirmDialog(title="Save & Publish Tool - Documentation",
-                       message="Usage:\n1. Enter Asset Name and File Name.\n2. Select Department and Asset Type.\n3. Click Save (WIP) or Publish (final).\n\nVersioning is automatic.",
+                       message="Usage:\n1. Enter Asset Name and File Name.\n2. Select Department and Asset Type.\n3. Click Save (WIP) to save versions or Publish (final) for final output.\n\nVersioning is automatic for WIP saves.",
                        button=["OK"])
 
 # UI setup
@@ -128,7 +127,7 @@ def create_save_publish_tool_ui():
     # Save and Publish Buttons with options to view versions
     cmds.frameLayout(label="Actions", collapsable=True)
     cmds.rowLayout(numberOfColumns=4, columnWidth4=(110, 110, 110, 110), adjustableColumn=3)
-    cmds.button(label="Save (WIP)", width=110, command=lambda *args: save_file(
+    cmds.button(label="Save (WIP)", width=110, command=lambda *args: save_wip_file(
         cmds.optionMenuGrp('departmentMenu', query=True, value=True),
         cmds.optionMenuGrp('assetTypeMenu', query=True, value=True),
         cmds.textFieldGrp('assetName', query=True, text=True),
