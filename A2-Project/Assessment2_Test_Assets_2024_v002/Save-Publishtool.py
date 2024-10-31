@@ -9,7 +9,7 @@ def get_project_root():
 WIP_DIR = os.path.join(get_project_root(), "wip")
 PUBLISH_DIR = os.path.join(get_project_root(), "publish")
 
-# Helper function: Ensure directory exists
+# Ensure directory exists
 def ensure_directory_exists(path):
     if not os.path.exists(path):
         os.makedirs(path)
@@ -21,7 +21,6 @@ def determine_save_path(department, asset_type, asset_name, is_publish=False):
         save_path = os.path.join(base_path, "assets", asset_type, asset_name, department, "source")
     else:
         save_path = os.path.join(base_path, "sequence", asset_name, department, "source")
-    
     ensure_directory_exists(save_path)
     return save_path
 
@@ -37,15 +36,12 @@ def save_wip_file(department, asset_type, asset_name, file_name):
     if not all([department, asset_type, asset_name, file_name]):
         cmds.warning("Please fill in all required fields.")
         return
-    
     save_path = determine_save_path(department, asset_type, asset_name)
     version = get_next_version(save_path, file_name)
     full_file_name = f"{file_name}_v{version}.ma"
     full_file_path = os.path.join(save_path, full_file_name)
-    
     cmds.file(rename=full_file_path)
     cmds.file(save=True, type="mayaAscii")
-    
     cmds.confirmDialog(title="Save Successful", message=f"File saved as {full_file_name} in WIP", button=["OK"])
     return full_file_name, version
 
@@ -66,17 +62,14 @@ def publish_file(department, asset_type, asset_name, file_name, frame_range="1 2
     if not wip_files:
         cmds.warning("No WIP file found to publish. Save as WIP before publishing.")
         return
-
     # Use the latest versioned WIP file for publishing
     latest_wip_file = wip_files[0]
     saved_file = os.path.join(wip_save_path, latest_wip_file)
     published_file = os.path.join(publish_source_path, f"{file_name}_final.ma")
-
     if os.path.exists(published_file):
         overwrite = cmds.confirmDialog(title="File Exists", message="Published file already exists. Overwrite?", button=["Yes", "No"])
         if overwrite == "No":
             return
-
     cmds.sysFile(saved_file, copy=published_file)
 
     # Export Alembic (.abc), FBX (.fbx), and USD (.usd) files
@@ -86,7 +79,6 @@ def publish_file(department, asset_type, asset_name, file_name, frame_range="1 2
     cmds.AbcExport(j=f"-file {alembic_path} -ftr -fr {frame_range}")
     cmds.file(fbx_path, force=True, options="v=0;", type="FBX export", exportAll=True)
     cmds.file(usd_path, force=True, options="v=0;", type="USD export", exportAll=True)
-    
     cmds.confirmDialog(title="Publish Successful", message=f"File published as {file_name}_final in publish folder", button=["OK"])
 
 # Documentation dialog
@@ -140,7 +132,7 @@ def create_save_publish_tool_ui():
         cmds.textFieldGrp('fileName', query=True, text=True)
     ))
     cmds.button(label="List Versions", width=110, command=list_versions)
-    cmds.button(label="Documentation", width=110, command=show_documentation)
+    cmds.button(label="Documentation", width=110, command=lambda *args: show_documentation())
     cmds.setParent('..')
     
     cmds.showWindow(window)
@@ -151,7 +143,6 @@ def list_versions(*args):
     asset_name = cmds.textFieldGrp('assetName', query=True, text=True)
     department = cmds.optionMenuGrp('departmentMenu', query=True, value=True)
     save_path = determine_save_path(department, asset_type, asset_name)
-    
     versions = sorted([f for f in os.listdir(save_path) if re.match(rf"{asset_name}_v\d+.ma", f)], reverse=True)
     if versions:
         print(f"Versions for {asset_name} (WIP):")
@@ -162,4 +153,5 @@ def list_versions(*args):
 
 # Run the Save & Publish Tool UI
 create_save_publish_tool_ui()
+
 
