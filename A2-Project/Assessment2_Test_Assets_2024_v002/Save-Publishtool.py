@@ -64,7 +64,7 @@ def publish_file(department, asset_type, asset_name, file_name, frame_range="1 2
     wip_save_path = determine_save_path(department, asset_type, asset_name)
     wip_files = sorted([f for f in os.listdir(wip_save_path) if f.startswith(file_name) and f.endswith(".ma")], reverse=True)
     if not wip_files:
-        cmds.warning("No WIP file found to publish.")
+        cmds.warning("No WIP file found to publish. Save as WIP before publishing.")
         return
 
     # Use the latest versioned WIP file for publishing
@@ -162,3 +162,4 @@ def list_versions(*args):
 
 # Run the Save & Publish Tool UI
 create_save_publish_tool_ui()
+
