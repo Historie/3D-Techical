@@ -12,7 +12,7 @@ def create_builder_tool_ui():
     
     sequence_name, shot_name = get_current_shot()
     if not shot_name:
-        cmds.error("Cannot determine the current shot. Please open a shot scene first.")
+        cmds.error("open a shot scene first.")
         return
     cmds.text(label=f"Current Shot: {sequence_name}/{shot_name}", align='left')
     
@@ -36,7 +36,9 @@ def create_builder_tool_ui():
     cmds.showWindow(window)
     update_asset_list()
 
-# 全局变量，用于存储版本文件名与相对路径的映射
+# 全局变量  用于存储资产与其版本的映射
+asset_versions_map = {}
+# 全局变量  用于存储版本文件名与相对路径的映射
 version_map = {}
 
 # 获取当前项目的根目录
@@ -47,39 +49,50 @@ def get_project_root():
 
 # 获取当前镜头
 def get_current_shot():
-    # 获取当前打开的场景文件的完整路径
     current_file = cmds.file(query=True, sceneName=True)
     if not current_file:
-        cmds.warning("No scene file is currently open.")
         return None, None
-    current_file = os.path.normpath(current_file)
 
-    # 获取项目的根目录
+    current_file = os.path.normpath(current_file)
     project_root = get_project_root()
     relative_path = os.path.relpath(current_file, project_root)
+    # 将相对路径分割成各个路径部分
     path_parts = relative_path.split(os.sep)
-    print(f"Current file relative path: {relative_path}")
+    print(f"path of the current file: {relative_path}")
 
-    # 查找路径中是否包含 sequence 目录
     if "sequence" in path_parts:
-        # 获取 sequence 的索引
         seq_index = path_parts.index("sequence")
-        # 确保 "sequence" 目录后面至少还有序列名和镜头名
+        # 在 sequence 后检测至少两个元素，获取序列和镜头名称
         if len(path_parts) > seq_index + 2:
-            # 获取序列名称和镜头名称
+            # 序列名称为 sequence 后的第一个路径部分
             sequence_name = path_parts[seq_index + 1]
+            # 镜头名称为 sequence 后的路径
             shot_name = path_parts[seq_index + 2]
             print(f"Detected sequence: {sequence_name}, shot: {shot_name}")
-            # 返回序列名称和镜头名称
             return sequence_name, shot_name
-    # 如果未能获取发出警告
-    cmds.warning("Unable to determine the current shot from the scene path.")
+
     return None, None
 
-# 获取可用的资产列表，基于选定的资产类型
+
+# 提取资产的基础名称和版本号
+def extract_base_name_and_version(filename):
+    match = re.match(r'(.+?)[._]v(\d+)', filename)
+    if match:
+        base_name = match.group(1)
+        version_number = int(match.group(2))
+        print(f"Extracted base name: {base_name}, version number: {version_number} from {filename}")
+        return base_name, version_number
+    else:
+        print(f"No version number found in {filename}")
+        base_name = os.path.splitext(filename)[0]
+        return base_name, 0
+
+# 获取可用的资产列表
 def get_assets(asset_types):
+    global asset_versions_map
     project_root = get_project_root()
-    assets = []
+    assets = set()
+    asset_versions_map = {}
     sequence_name, shot_name = get_current_shot()
     if not shot_name:
         cmds.error("Cannot determine the current shot. Please open a shot scene first.")
@@ -87,39 +100,44 @@ def get_assets(asset_types):
 
     for asset_type in asset_types:
         if asset_type == 'layout':
-            # Layout 资产 从镜头的 layout caches 目录加载
+            # 处理 layout 资产
             asset_dir = os.path.join(project_root, 'publish', 'sequence', sequence_name, shot_name, 'layout', 'caches', 'alembic')
             print(f"Layout asset directory: {asset_dir}")
             if os.path.exists(asset_dir):
                 asset_files = [f for f in os.listdir(asset_dir)
                                if os.path.isfile(os.path.join(asset_dir, f))]
-                print(f"Found layout asset files: {asset_files}")
-                assets.extend([f"{asset_type}/{f}" for f in asset_files])
+                for f in asset_files:
+                    base_name, _ = extract_base_name_and_version(f)
+                    assets.add(f"{asset_type}/{base_name}")
+                    asset_versions_map.setdefault((asset_type, base_name), []).append(f)
             else:
-                print(f"Layout asset directory does not exist: {asset_dir}")
+                print(f"Layout directory does not exist: {asset_dir}")
         elif asset_type == 'character':
-            # Character Animation Cache，从镜头的 animation caches alembic 目录加载
+            # 处理 character 资产
             asset_dir = os.path.join(project_root, 'publish', 'sequence', sequence_name, shot_name, 'animation', 'caches', 'alembic')
             print(f"Character asset directory: {asset_dir}")
             if os.path.exists(asset_dir):
                 asset_files = [f for f in os.listdir(asset_dir)
                                if os.path.isfile(os.path.join(asset_dir, f))]
-                print(f"Found character asset files: {asset_files}")
-                assets.extend([f"{asset_type}/{f}" for f in asset_files])
+                for f in asset_files:
+                    base_name, _ = extract_base_name_and_version(f)
+                    assets.add(f"{asset_type}/{base_name}")
+                    asset_versions_map.setdefault((asset_type, base_name), []).append(f)
             else:
-                print(f"Character asset directory does not exist: {asset_dir}")
+                print(f"No character asset directory: {asset_dir}")
         else:
-            # 处理其他资产类型
+            # 对于 'prop'、'set' 等资产类型
             asset_dir = os.path.join(project_root, 'publish', 'assets', asset_type)
             print(f"{asset_type.capitalize()} asset directory: {asset_dir}")
             if os.path.exists(asset_dir):
-                asset_names = [d for d in os.listdir(asset_dir)
-                               if os.path.isdir(os.path.join(asset_dir, d))]
-                print(f"Found {asset_type} assets: {asset_names}")
-                assets.extend([f"{asset_type}/{name}" for name in asset_names])
-            else:
-                print(f"{asset_type.capitalize()} asset directory does not exist: {asset_dir}")
-    return assets
+                for asset_name in os.listdir(asset_dir):
+                    asset_path = os.path.join(asset_dir, asset_name)
+                    if os.path.isdir(asset_path):
+                        assets.add(f"{asset_type}/{asset_name}")
+                        # 初始化资产版本映射
+                        asset_versions_map[(asset_type, asset_name)] = []
+           
+    return sorted(list(assets))
 
 # 更新资产列表，当资产类型选择发生变化时调用
 def update_asset_list(*args):
@@ -137,19 +155,8 @@ def update_asset_list(*args):
     cmds.textScrollList('assetList', edit=True, removeAll=True)
     cmds.textScrollList('assetList', edit=True, append=assets)
 
-# 提取文件名中的版本号，用于排序
-def extract_version_number(filename):
-    match = re.search(r'[._]v(\d+)', filename)
-    if match:
-        version_number = int(match.group(1))
-        print(f"Extracted version number {version_number} from {filename}")
-        return version_number
-    else:
-        print(f"No version number found in {filename}")
-        return 0
-
 # 获取指定资产的所有可用版本
-def get_versions(asset_type, asset_name):
+def get_versions(asset_type, base_name):
     global version_map
     project_root = get_project_root()
     versions = []
@@ -159,78 +166,54 @@ def get_versions(asset_type, asset_name):
         cmds.error("Cannot determine the current shot.")
         return versions
 
-    if asset_type == 'layout':
-        # 资产的路径
-        asset_path = os.path.join(
-            project_root, 'publish', 'sequence', sequence_name, shot_name,
-            'layout', 'caches', 'alembic', asset_name)
-        print(f"Layout asset path: {asset_path}")
-        if os.path.exists(asset_path):
-            # 提取版本号 更新列表
-            version_number = extract_version_number(asset_name)
-            version_map[asset_name] = asset_name
-            versions.append(asset_name)
+    if asset_type in ['layout', 'character']:
+        key = (asset_type, base_name)
+        if key in asset_versions_map:
+            files = asset_versions_map[key]
+            version_info = []
+            for f in files:
+                file_name = os.path.basename(f)
+                base, version_number = extract_base_name_and_version(file_name)
+                if base == base_name:
+                    version_info.append((version_number, f))
+                    version_map[file_name] = f  # 将文件名映射到相对路径
+            version_info.sort(key=lambda x: x[0], reverse=True)
+            versions.extend([os.path.basename(v[1]) for v in version_info])
         else:
-            print(f"Asset file does not exist: {asset_path}")
-    elif asset_type == 'character':
-        # 角色资产的路径
-        asset_path = os.path.join(
-            project_root, 'publish', 'sequence', sequence_name, shot_name,
-            'animation', 'caches', 'alembic', asset_name)
-        print(f"Character asset path: {asset_path}")
-        if os.path.exists(asset_path):            
-            version_number = extract_version_number(asset_name)
-            version_map[asset_name] = asset_name
-            versions.append(asset_name)
-        else:
-            print(f"Asset file does not exist: {asset_path}")
+            print(f"No versions found for asset {asset_type}/{base_name}")
     else:
-        # 构建其他资产类型的路径
-        asset_dir = os.path.join(
-            project_root, 'publish', 'assets', asset_type, asset_name)
-        print(f"Looking for versions in: {asset_dir}")
-
-        version_info = []
-
+        asset_dir = os.path.join(project_root, 'publish', 'assets', asset_type, base_name)
         if os.path.exists(asset_dir):
-            # 遍历资产目录，查找符合条件的文件
-            for root, dirs, files in os.walk(asset_dir):
-                for f in files:
-                    if f == '.DS_Store':
-                        continue
-                    if f.endswith(('.ma', '.mb', '.abc', '.fbx')):
-                        # 计算文件的相对路径
-                        relative_dir = os.path.relpath(root, asset_dir)
-                        version_path = os.path.join(relative_dir, f)
-                        # 提取版本号
-                        version_number = extract_version_number(f)
-                        # 将版本信息添加到列表
-                        version_info.append((version_number, f))
-                        version_map[f] = version_path
-                        print(f"Found file: {version_path}")
+            for dept in os.listdir(asset_dir):  # 部门可能是 'model'、'rig' 等
+                dept_path = os.path.join(asset_dir, dept)
+                if os.path.isdir(dept_path):
+                    source_dir = os.path.join(dept_path, 'source')
+                    if os.path.exists(source_dir):
+                        files = [f for f in os.listdir(source_dir) if f.endswith(('.ma', '.mb', '.abc', '.fbx'))]
+                        for f in files:
+                            base, version_number = extract_base_name_and_version(f)
+                            # 使用部门和文件名作为版本标签
+                            version_label = f"{dept}/{f}"
+                            versions.append(version_label)
+                            relative_path = os.path.relpath(os.path.join(source_dir, f), asset_dir)
+                            version_map[version_label] = relative_path
         else:
-            print(f"Asset directory does not exist: {asset_dir}")
-
-        # 按版本号从高到低排序
-        version_info.sort(key=lambda x: x[0], reverse=True)
-        # 提取排序后的文件名列表
-        versions.extend([v[1] for v in version_info])
-    return versions
-
+            print(f"No versions found for asset {asset_type}/{base_name}")
+    return sorted(versions, reverse=True)
 
 # 当选择资产时，更新版本列表
 def on_asset_selected(*args):
     selected_assets = cmds.textScrollList('assetList', query=True, selectItem=True)
     if selected_assets:
         asset = selected_assets[0]
-        asset_type, asset_name = asset.split('/', 1)
-        versions = get_versions(asset_type, asset_name)
+        asset_type, base_name = asset.split('/', 1)
+        versions = get_versions(asset_type, base_name)
         cmds.optionMenu('versionMenu', edit=True, deleteAllItems=True)
         if versions:
             for version in versions:
                 cmds.menuItem(label=version, parent='versionMenu')
         else:
-            cmds.menuItem(label='No Versions Found', parent='versionMenu')
+            cmds.menuItem(label='No versions found', parent='versionMenu')
     else:
         cmds.optionMenu('versionMenu', edit=True, deleteAllItems=True)
 
@@ -239,38 +222,65 @@ def load_selected_assets(*args):
     global version_map
     selected_assets = cmds.textScrollList('assetList', query=True, selectItem=True)
     selected_version = cmds.optionMenu('versionMenu', query=True, value=True)
-    if selected_assets and selected_version != 'No Versions Found':
+    
+    if selected_assets and selected_version and selected_version != 'No versions found':
         sequence_name, shot_name = get_current_shot()
         if not shot_name:
             cmds.error("Cannot determine the current shot.")
             return
+
         for asset in selected_assets:
-            asset_type, asset_name = asset.split('/', 1)
+            asset_type, base_name = asset.split('/', 1)
             relative_path = version_map.get(selected_version)
+            
             if not relative_path:
-                cmds.warning(f"Version path not found for: {selected_version}")
+                cmds.warning(f"Version path not found: {selected_version}")
                 continue
+
+            # 根据资产类型构建文件路径
             if asset_type == 'layout':
                 file_path = os.path.join(get_project_root(), 'publish', 'sequence', sequence_name, shot_name, 'layout', 'caches', 'alembic', relative_path)
             elif asset_type == 'character':
                 file_path = os.path.join(get_project_root(), 'publish', 'sequence', sequence_name, shot_name, 'animation', 'caches', 'alembic', relative_path)
             else:
-                file_path = os.path.join(get_project_root(), 'publish', 'assets',
-                                         asset_type, asset_name, relative_path)
+                asset_dir = os.path.join(get_project_root(), 'publish', 'assets', asset_type, base_name)
+                file_path = os.path.join(asset_dir, relative_path)
+
+            # 标准化路径
             full_file_path = os.path.normpath(file_path)
             print(f"Loading asset from: {full_file_path}")
+
             if os.path.exists(full_file_path):
-                try:
-                    cmds.file(full_file_path, reference=True)
-                    # 移除日志输出代码
-                    # cmds.scrollField('infoField', edit=True,
-                    #                  insertText=f"Loaded {asset} version {selected_version}\n")
-                except Exception as e:
-                    cmds.warning(f"Failed to load asset: {e}")
+                namespace = base_name
+                existing_refs = cmds.ls(type='reference')
+                ref_node = None
+                ref_file = None
+                
+                for ref in existing_refs:
+                    try:
+                        ref_file = cmds.referenceQuery(ref, filename=True)
+                        ref_namespace = cmds.referenceQuery(ref, namespace=True)
+                        
+                        if ref_namespace.strip(':') == namespace:
+                            ref_node = ref
+                            break
+                    except:
+                        continue
+
+                if ref_node:
+                    try:
+                        cmds.file(full_file_path, loadReference=ref_node)
+                        print(f"Replaced reference: {ref_node}, new file: {full_file_path}")
+                    except Exception as e:
+                        print(f"Failed to replace reference: {e}")
+                else:
+                    try:
+                        ref_node = cmds.file(full_file_path, reference=True, namespace=namespace, returnNewNodes=False, referenceNode=True)
+                        print(f"Loaded asset: {asset}, version: {selected_version}")
+                    except Exception as e:
+                        print(f"Failed to load asset: {e}")
             else:
                 cmds.warning(f"File not found: {full_file_path}")
-    else:
-        cmds.warning("No assets selected or invalid version.")
 
 # 运行工具，创建用户界面
 create_builder_tool_ui()
